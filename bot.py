@@ -81,10 +81,10 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⛔ فقط ادمین می‌تونه کتاب اضافه کنه.")
         return
 
-    doc = update.message.document
-    if not doc.file_name.lower().endswith(".pdf"):
-        await update.message.reply_text("⚠️ فقط فایل PDF قبول می‌شه.")
-        return
+    allowed = (".pdf", ".mp4", ".mkv", ".mov", ".avi")
+if not doc.file_name.lower().endswith(allowed):
+    await update.message.reply_text("⚠️ فقط PDF یا ویدیو قبول می‌شه.")
+    return
 
     # ذخیره موقت file_id و انتظار برای عنوان
     context.user_data["pending_file_id"] = doc.file_id
