@@ -1,3 +1,34 @@
+import logging
+import json
+import os
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application, CommandHandler, MessageHandler,
+    filters, ContextTypes, CallbackQueryHandler
+)
+
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
+ADMIN_ID = int(os.environ.get("ADMIN_ID", "0"))
+DATA_FILE = "books.json"
+
+
+def load_books() -> dict:
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+def save_books(books: dict):
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(books, f, ensure_ascii=False, indent=2)
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     args = context.args
@@ -5,23 +36,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if args:
         book_key = args[0]
         books = load_books()
-
-        # ---- NEW: TRACKING ----
-        stats = load_stats()
-        stats[book_key] = stats.get(book_key, 0) + 1
-        save_stats(stats)
-        # -----------------------
-
         if book_key in books:
             book = books[book_key]
             file_type = book.get("type", "pdf")
-
             await update.message.reply_text(
                 f"📚 *{book['title']}*\n\n"
                 f"_{book.get('description', 'در حال ارسال...')}_",
                 parse_mode="Markdown"
             )
-
             if file_type == "video":
                 await update.message.reply_video(
                     video=book["file_id"],
@@ -33,23 +55,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     caption=f"📖 {book['title']}\n\n🔗 کانال ما را دنبال کنید!",
                 )
             return
-        else:
-            await update.message.reply_text("❌ این فایل پیدا نشد یا حذف شده.")
-            return
-
-    if user_id == ADMIN_ID:
-        await update.message.reply_text(
-            "👋 سلام ادمین!\n\n"
-            "📤 PDF یا ویدیو بفرست تا اضافه بشه\n"
-            "📋 /list — لیست فایل‌ها\n"
-            "🗑 /delete — حذف فایل\n"
-            "📊 /stats — آمار کلیک‌ها"
-        )
-    else:
-        await update.message.reply_text(
-            "👋 سلام!\n"
-            "لینک فایل مورد نظر رو از کانال بزن تا برات ارسال بشه. 📚"
-        )    return
         else:
             await update.message.reply_text("❌ این فایل پیدا نشد یا حذف شده.")
             return
