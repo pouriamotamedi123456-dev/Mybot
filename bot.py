@@ -228,14 +228,14 @@ async def list_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         bot_username = context.bot.username
-        text = "📋 *لیست فایل‌ها:*\n\n"
+        text = "📋 لیست فایل‌ها:\n\n"
         for key, book in books.items():
             link = f"https://t.me/{bot_username}?start={key}"
             emoji = "🎬" if book.get("type") == "video" else "📖"
             clicks = book.get("clicks", 0)
-            text += f"{emoji} `{key}` — *{book['title']}*\n👆 {clicks} کلیک\n🔗 {link}\n\n"
+            text += f"{emoji} {key} — {book['title']}\n👆 {clicks} کلیک\n🔗 {link}\n\n"
 
-        await update.message.reply_text(text, parse_mode="Markdown")
+        await update.message.reply_text(text)
     except Exception as e:
         await update.message.reply_text(f"❌ خطا: {e}")
 
