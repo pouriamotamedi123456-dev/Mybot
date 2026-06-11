@@ -260,7 +260,7 @@ async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard.append([InlineKeyboardButton("❌ انصراف", callback_data="cancel")])
 
     await update.message.reply_text(
-        "کدوم فایل رو می‌خوای حذف کنی؟",
+        "🗑 کدوم فایل رو می‌خوای حذف کنی؟",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
@@ -269,19 +269,22 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    if query.data == "cancel":
-        await query.edit_message_text("❌ عملیات لغو شد.")
-        return
+    try:
+        if query.data == "cancel":
+            await query.edit_message_text("❌ عملیات لغو شد.")
+            return
 
-    if query.data.startswith("delete_"):
-        key = query.data.replace("delete_", "")
-        books = load_books()
-        if key in books:
-            title = books[key]["title"]
-            delete_book(key)
-            await query.edit_message_text(f"✅ «{title}» حذف شد.")
-        else:
-            await query.edit_message_text("❌ فایل پیدا نشد.")
+        if query.data.startswith("delete_"):
+            key = query.data.replace("delete_", "")
+            books = load_books()
+            if key in books:
+                title = books[key]["title"]
+                delete_book(key)
+                await query.edit_message_text(f"✅ {title} حذف شد.")
+            else:
+                await query.edit_message_text("❌ فایل پیدا نشد.")
+    except Exception as e:
+        await query.edit_message_text(f"❌ خطا: {e}")
 
 
 # ─── اجرا ────────────────────────────────────────────────────────────────────
