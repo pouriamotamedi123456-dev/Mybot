@@ -1,6 +1,8 @@
 import logging
 import json
 import os
+import psycopg2
+from psycopg2.extras import RealDictCursor
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
@@ -15,19 +17,75 @@ logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "0"))
-DATA_FILE = "books.json"
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
+
+# ─── دیتابیس ─────────────────────────────────────────────────────────────────
+
+def get_conn():
+    return psycopg2.connect(DATABASE_URL)
+
+def init_db():
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS books (
+                    key TEXT PRIMARY KEY,
+                    title TEXT,
+                    description TEXT,
+                    file_id TEXT,
+                    type TEXT DEFAULT 'pdf',
+                    clicks INTEGER DEFAULT 0
+                )
+            """)
+        conn.commit()
 
 def load_books() -> dict:
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT * FROM books ORDER BY key")
+            rows = cur.fetchall()
+    return {row['key']: dict(row) for row in rows}
 
-def save_books(books: dict):
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(books, f, ensure_ascii=False, indent=2)
+def save_book(key: str, book: dict):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO books (key, title, description, file_id, type, clicks)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (key) DO UPDATE SET
+                    title=EXCLUDED.title,
+                    description=EXCLUDED.description,
+                    file_id=EXCLUDED.file_id,
+                    type=EXCLUDED.type,
+                    clicks=EXCLUDED.clicks
+            """, (key, book.get('title'), book.get('description'),
+                  book.get('file_id'), book.get('type', 'pdf'), book.get('clicks', 0)))
+        conn.commit()
 
+def increment_clicks(key: str):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE books SET clicks = clicks + 1 WHERE key = %s", (key,))
+        conn.commit()
+
+def delete_book(key: str):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM books WHERE key = %s", (key,))
+        conn.commit()
+
+def next_key() -> str:
+    books = load_books()
+    n = len(books) + 1
+    key = f"file_{n:04d}"
+    while key in books:
+        n += 1
+        key = f"file_{n:04d}"
+    return key
+
+
+# ─── دستورات ─────────────────────────────────────────────────────────────────
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -38,9 +96,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         books = load_books()
         if book_key in books:
             book = books[book_key]
-            # شمارنده کلیک
-            books[book_key]["clicks"] = book.get("clicks", 0) + 1
-            save_books(books)
+            increment_clicks(book_key)
             file_type = book.get("type", "pdf")
             await update.message.reply_text(
                 f"📚 *{book['title']}*\n\n"
@@ -85,37 +141,27 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     doc = update.message.document
     allowed = (".pdf", ".mp4", ".mkv", ".mov", ".avi")
     if not doc.file_name.lower().endswith(allowed):
-        await update.message.reply_text("⚠️ فقط PDF یا ویدیو (mp4, mkv, mov, avi) قبول می‌شه.")
+        await update.message.reply_text("⚠️ فقط PDF یا ویدیو قبول می‌شه.")
         return
 
     is_video = doc.file_name.lower().endswith((".mp4", ".mkv", ".mov", ".avi"))
     context.user_data["pending_file_id"] = doc.file_id
-    context.user_data["pending_file_name"] = doc.file_name
     context.user_data["pending_type"] = "video" if is_video else "pdf"
     context.user_data["state"] = "waiting_title"
 
     file_label = "ویدیو" if is_video else "PDF"
-    await update.message.reply_text(
-        f"✅ {file_label} دریافت شد!\n\n"
-        f"📝 حالا عنوان رو بنویس:"
-    )
+    await update.message.reply_text(f"✅ {file_label} دریافت شد!\n\n📝 عنوان رو بنویس:")
 
 
 async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id != ADMIN_ID:
         return
-
     video = update.message.video
     context.user_data["pending_file_id"] = video.file_id
-    context.user_data["pending_file_name"] = "video.mp4"
     context.user_data["pending_type"] = "video"
     context.user_data["state"] = "waiting_title"
-
-    await update.message.reply_text(
-        "✅ ویدیو دریافت شد!\n\n"
-        "📝 حالا عنوان رو بنویس:"
-    )
+    await update.message.reply_text("✅ ویدیو دریافت شد!\n\n📝 عنوان رو بنویس:")
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -124,13 +170,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     state = context.user_data.get("state")
-
     if state == "waiting_title":
         context.user_data["pending_title"] = update.message.text
         context.user_data["state"] = "waiting_description"
-        await update.message.reply_text(
-            "📄 توضیح کوتاه بنویس (یا /skip بزن):"
-        )
+        await update.message.reply_text("📄 توضیح کوتاه بنویس (یا /skip بزن):")
     elif state == "waiting_description":
         await _save_file(update, context, update.message.text)
 
@@ -151,24 +194,18 @@ async def _save_file(update, context, description):
         await update.message.reply_text("❌ خطا! دوباره فایل رو بفرست.")
         return
 
-    books = load_books()
-    key = f"file_{len(books) + 1:04d}"
-    while key in books:
-        key = f"file_{int(key.split('_')[1]) + 1:04d}"
-
-    books[key] = {
+    key = next_key()
+    save_book(key, {
         "title": title,
         "description": description,
         "file_id": file_id,
         "type": file_type,
         "clicks": 0,
-    }
-    save_books(books)
+    })
 
     bot_username = (await update.get_bot().get_me()).username
     deep_link = f"https://t.me/{bot_username}?start={key}"
     emoji = "🎬" if file_type == "video" else "📖"
-
     context.user_data.clear()
 
     await update.message.reply_text(
@@ -238,14 +275,16 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         books = load_books()
         if key in books:
             title = books[key]["title"]
-            del books[key]
-            save_books(books)
+            delete_book(key)
             await query.edit_message_text(f"✅ «{title}» حذف شد.")
         else:
             await query.edit_message_text("❌ فایل پیدا نشد.")
 
 
+# ─── اجرا ────────────────────────────────────────────────────────────────────
+
 def main():
+    init_db()
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
