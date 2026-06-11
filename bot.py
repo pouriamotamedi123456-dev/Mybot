@@ -16,7 +16,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
-ADMIN_ID = int(os.environ.get("ADMIN_ID", "0"))
+_raw_admins = os.environ.get("ADMIN_ID", "0")
+ADMIN_IDS = set(int(x.strip()) for x in _raw_admins.split(",") if x.strip().isdigit())
+ADMIN_ID = int(os.environ.get("ADMIN_ID", "0").split(",")[0].strip())  # backward compat
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 
@@ -118,7 +120,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ این فایل پیدا نشد یا حذف شده.")
             return
 
-    if user_id == ADMIN_ID:
+    if user_id in ADMIN_IDS:
         await update.message.reply_text(
             "👋 سلام ادمین!\n\n"
             "📤 PDF یا ویدیو بفرست تا اضافه بشه\n"
@@ -134,7 +136,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if user_id != ADMIN_ID:
+    if user_id not in ADMIN_IDS:
         await update.message.reply_text("⛔ فقط ادمین می‌تونه فایل اضافه کنه.")
         return
 
@@ -155,7 +157,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if user_id != ADMIN_ID:
+    if user_id not in ADMIN_IDS:
         return
     video = update.message.video
     context.user_data["pending_file_id"] = video.file_id
@@ -166,7 +168,7 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if user_id != ADMIN_ID:
+    if user_id not in ADMIN_IDS:
         return
 
     state = context.user_data.get("state")
@@ -179,7 +181,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
+    if update.effective_user.id not in ADMIN_IDS:
         return
     if context.user_data.get("state") == "waiting_description":
         await _save_file(update, context, "")
@@ -218,7 +220,7 @@ async def _save_file(update, context, description):
 
 
 async def list_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
+    if update.effective_user.id not in ADMIN_IDS:
         return
 
     books = load_books()
@@ -241,7 +243,7 @@ async def list_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
+    if update.effective_user.id not in ADMIN_IDS:
         return
 
     books = load_books()
@@ -271,7 +273,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         if query.data == "cancel":
-            await query.edit_message_text("❌ عملیات لغو شد.")
+            await query.edit_message_text("❌ عملیات لغو شد.", reply_markup=None)
             return
 
         if query.data.startswith("delete_"):
@@ -280,11 +282,15 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if key in books:
                 title = books[key]["title"]
                 delete_book(key)
-                await query.edit_message_text(f"✅ {title} حذف شد.")
+                await query.edit_message_text(f"✅ {title} حذف شد.", reply_markup=None)
             else:
-                await query.edit_message_text("❌ فایل پیدا نشد.")
+                await query.edit_message_text("❌ فایل پیدا نشد.", reply_markup=None)
     except Exception as e:
-        await query.edit_message_text(f"❌ خطا: {e}")
+        logger.error(f"button_callback error: {e}")
+        try:
+            await query.edit_message_text(f"❌ خطا: {e}", reply_markup=None)
+        except:
+            pass
 
 
 # ─── اجرا ────────────────────────────────────────────────────────────────────
