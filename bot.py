@@ -38,6 +38,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         books = load_books()
         if book_key in books:
             book = books[book_key]
+            # شمارنده کلیک
+            books[book_key]["clicks"] = book.get("clicks", 0) + 1
+            save_books(books)
             file_type = book.get("type", "pdf")
             await update.message.reply_text(
                 f"📚 *{book['title']}*\n\n"
@@ -158,6 +161,7 @@ async def _save_file(update, context, description):
         "description": description,
         "file_id": file_id,
         "type": file_type,
+        "clicks": 0,
     }
     save_books(books)
 
@@ -190,7 +194,8 @@ async def list_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for key, book in books.items():
         link = f"https://t.me/{bot_username}?start={key}"
         emoji = "🎬" if book.get("type") == "video" else "📖"
-        text += f"{emoji} `{key}` — *{book['title']}*\n🔗 {link}\n\n"
+        clicks = book.get("clicks", 0)
+        text += f"{emoji} `{key}` — *{book['title']}*\n👆 {clicks} کلیک\n🔗 {link}\n\n"
 
     await update.message.reply_text(text, parse_mode="Markdown")
 
@@ -207,8 +212,9 @@ async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = []
     for key, book in books.items():
         emoji = "🎬" if book.get("type") == "video" else "📖"
+        clicks = book.get("clicks", 0)
         keyboard.append([InlineKeyboardButton(
-            f"🗑 {emoji} {book['title']} ({key})",
+            f"🗑 {emoji} {book['title']} ({clicks} کلیک)",
             callback_data=f"delete_{key}"
         )])
     keyboard.append([InlineKeyboardButton("❌ انصراف", callback_data="cancel")])
