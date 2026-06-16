@@ -230,16 +230,29 @@ async def list_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         bot_username = context.bot.username
-        text = "📋 لیست فایل‌ها:\n\n"
+        chunks = []
+        current_chunk = f"📋 لیست فایل‌ها ({len(books)} فایل):\n\n"
+
         for key, book in books.items():
             link = f"https://t.me/{bot_username}?start={key}"
             emoji = "🎬" if book.get("type") == "video" else "📖"
             clicks = book.get("clicks", 0)
-            text += f"{emoji} {key} — {book['title']}\n👆 {clicks} کلیک\n🔗 {link}\n\n"
+            entry = f"{emoji} {key} — {book['title']}\n👆 {clicks} کلیک\n🔗 {link}\n\n"
 
-        await update.message.reply_text(text)
+            if len(current_chunk) + len(entry) > 4000:
+                chunks.append(current_chunk)
+                current_chunk = entry
+            else:
+                current_chunk += entry
+
+        if current_chunk:
+            chunks.append(current_chunk)
+
+        for chunk in chunks:
+            await update.message.reply_text(chunk)
+
     except Exception as e:
-        await update.message.reply_text(f"❌ خطا: {e}")
+        await update.message.reply_text(f"❌ خطا در لیست: {e}")
 
 
 async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -271,26 +284,26 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    try:
-        if query.data == "cancel":
-            await query.edit_message_text("❌ عملیات لغو شد.", reply_markup=None)
-            return
+    data = query.data
+    logger.info(f"button_callback received: {data}")
 
-        if query.data.startswith("delete_"):
-            key = query.data.replace("delete_", "")
-            books = load_books()
-            if key in books:
-                title = books[key]["title"]
-                delete_book(key)
-                await query.edit_message_text(f"✅ {title} حذف شد.", reply_markup=None)
-            else:
-                await query.edit_message_text("❌ فایل پیدا نشد.", reply_markup=None)
-    except Exception as e:
-        logger.error(f"button_callback error: {e}")
-        try:
-            await query.edit_message_text(f"❌ خطا: {e}", reply_markup=None)
-        except:
-            pass
+    if data == "cancel":
+        await query.edit_message_text("❌ عملیات لغو شد.", reply_markup=None)
+        return
+
+    if data.startswith("delete_"):
+        key = data[len("delete_"):]
+        books = load_books()
+        if key in books:
+            title = books[key]["title"]
+            delete_book(key)
+            await query.edit_message_text(f"✅ «{title}» حذف شد.", reply_markup=None)
+        else:
+            await query.edit_message_text("❌ فایل پیدا نشد.", reply_markup=None)
+        return
+
+    logger.warning(f"button_callback: unhandled data={data}")
+    await query.edit_message_text("❌ دستور ناشناخته.", reply_markup=None)
 
 
 # ─── اجرا ────────────────────────────────────────────────────────────────────
